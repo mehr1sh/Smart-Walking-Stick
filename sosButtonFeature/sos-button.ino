@@ -23,7 +23,7 @@ void sendSMS(String message) {
     Serial.println("Sending SOS...");
     sim900.println("AT+CMGF=1");  // Set SMS mode
     delay(500);
-    sim900.println("AT+CMGS=\"+91XXXXXXXXXX\""); // Replace with your phone number
+    sim900.println("AT+CMGS=\"+917204430421\""); // Replace with your phone number
     delay(500);
     sim900.print(message);  
     sim900.write(26);  // End SMS
