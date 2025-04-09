@@ -1,3 +1,10 @@
+// What to Expect:
+//Open Serial Monitor at 115200 baud
+
+//Type AT and hit Enter
+
+//You should get OK from the module
+
 #define MODEM_RST 5
 #define MODEM_PWRKEY 4
 #define MODEM_POWER_ON 23
