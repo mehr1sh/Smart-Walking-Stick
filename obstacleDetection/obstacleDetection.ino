@@ -1,69 +1,60 @@
-// Define pins for Sensor 1
-const int trigPin1 = 5;
-const int echoPin1 = 18;
-
-// Define pins for Sensor 2
-const int trigPin2 = 17;
-const int echoPin2 = 16;
+// Define ultrasonic sensor pins
+const int trigFront = 18;
+const int echoFront = 19;
+const int trigSide  = 16;
+const int echoSide  = 17;
 
 // Buzzer pin
-const int buzzerPin = 19;
+const int buzzerPin = 13;
 
 // Threshold distance in cm
-const int SAFE_DISTANCE = 15;
-
-// Number of readings for averaging
-const int NUM_READINGS = 5;
+const int safeDistance = 30;
 
 void setup() {
   Serial.begin(115200);
 
-  // Set up pin modes for both sensors
-  pinMode(trigPin1, OUTPUT);
-  pinMode(echoPin1, INPUT);
-
-  pinMode(trigPin2, OUTPUT);
-  pinMode(echoPin2, INPUT);
+  // Set up ultrasonic sensors
+  pinMode(trigFront, OUTPUT);
+  pinMode(echoFront, INPUT);
+  pinMode(trigSide, OUTPUT);
+  pinMode(echoSide, INPUT);
 
   // Set up buzzer
   pinMode(buzzerPin, OUTPUT);
 }
 
-long getAverageDistance(int trigPin, int echoPin) {
-  long total = 0;
-  for (int i = 0; i < NUM_READINGS; i++) {
-    digitalWrite(trigPin, LOW);
-    delayMicroseconds(2);
-    digitalWrite(trigPin, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin, LOW);
+long getDistance(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
 
-    long duration = pulseIn(echoPin, HIGH, 20000); // 20ms timeout
-    total += duration;
-    delay(10);
-  }
-  long avgDuration = total / NUM_READINGS;
-  long distance = avgDuration * 0.034 / 2;
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  long duration = pulseIn(echoPin, HIGH);
+  long distance = duration * 0.034 / 2; // in cm
   return distance;
 }
 
 void loop() {
-  long distance1 = getAverageDistance(trigPin1, echoPin1);
-  long distance2 = getAverageDistance(trigPin2, echoPin2);
+  long distanceFront = getDistance(trigFront, echoFront);
+  long distanceSide  = getDistance(trigSide, echoSide);
 
-  Serial.print("Distance1: ");
-  Serial.print(distance1);
-  Serial.print(" cm, Distance2: ");
-  Serial.println(distance2);
+  Serial.print("Front: ");
+  Serial.print(distanceFront);
+  Serial.print(" cm\tSide: ");
+  Serial.print(distanceSide);
+  Serial.println(" cm");
 
-  // If either sensor detects something too close, buzz
-  if (distance1 <= SAFE_DISTANCE || distance2 <= SAFE_DISTANCE) {
-    tone(buzzerPin, 1000); // 1kHz sound
+  if (distanceFront < safeDistance || distanceSide < safeDistance) {
+    // Beep in intervals (e.g., 200 ms on, 200 ms off)
+    digitalWrite(buzzerPin, HIGH);
     delay(200);
-    noTone(buzzerPin);
+    digitalWrite(buzzerPin, LOW);
+    delay(200);
   } else {
-    noTone(buzzerPin);
+    // No obstacle → no beep
+    digitalWrite(buzzerPin, LOW);
+    delay(100);
   }
-
-  delay(300); // Control polling frequency
 }
