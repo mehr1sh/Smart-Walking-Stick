@@ -99,6 +99,7 @@ The Smart Walking Stick leverages Internet of Things (IoT) technologies to assis
 Smart-Walking-Stick/
 ├── code/                # Source code for microcontroller
 ├── hardware/            # Circuit diagrams and hardware schematics
+├── presentation         # Project summary in a ppt
 ├── README.md            # Project overview and instructions
 ```
 
