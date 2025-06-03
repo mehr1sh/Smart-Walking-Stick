@@ -1,55 +1,26 @@
 #include <WiFi.h>
+#include "ThingSpeak.h"
 #include <HTTPClient.h>
 #include <base64.h>
+#include <TinyGPSPlus.h>
 
-// ------------------ CONFIGURATION ------------------
-// WiFi credentials
-const char* ssid = "Niviboo";
-const char* password = "Niviboo123";
+WiFiClient client;
+unsigned long lastTSUpdate = 0;
 
-// Twilio Credentials
-const char* account_sid = "AC37ccc22d18b13400390fb2b009ebf1a4";
-const char* auth_token  = "15fce4be715b5c005c900470bda7d1c5";
-const char* from_number = "+17439626646";
-const char* to_number   = "+917204430421";
+// ThingSpeak settings
+const char* thingSpeakAPIKey = "PADVNCIXK7HMZ89R";
+unsigned long thingSpeakChannelNumber = 2949010;
 
-// Pushbullet Token
-const char* pb_token = "o.LIkpGIQncVDbnEovMwzXs31w44Xg1O9g";
+// Ultrasonic sensor pins
+const int trigA = 21, echoA = 19;
+const int trigB = 22, echoB = 23;
 
-// TwiML Bin URL
-const char* twiml_url = "https://handler.twilio.com/twiml/EH24ec49f5f6949ece3ae9423619572268";
+// Buzzer pin
+const int buzzer = 2;
 
-// ThingSpeak
-const char* thingspeakApiKey = "XSB245SZXOYDZJY0";  // Replace with your ThingSpeak Write API Key
-const char* thingspeakServer = "http://api.thingspeak.com/update";
-
-// Pins
-const int trigA = 21, echoA = 19; // Left ultrasonic
-const int trigB = 22, echoB = 23; // Right ultrasonic
-const int buzzer = 4;
-const int buttonPin = 16;
-const int ledPin = 18;
-
-// Thresholds
-const int detectionThreshold = 100;      // cm
-const int similarityThreshold = 10;      // cm difference for same object
-
-// States
-bool buttonPressed = false;
-unsigned long lastUploadTime = 0;
-const unsigned long uploadInterval = 15000;  // ThingSpeak rate limit
-
-// ------------------ FUNCTION DEFINITIONS ------------------
-
-void connectToWiFi() {
-  Serial.print("📶 Connecting to WiFi");
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\n✅ WiFi Connected");
-}
+// Detection thresholds
+const int detectionThreshold = 100;
+const int similarityThreshold = 10;
 
 long getDistance(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW); delayMicroseconds(2);
@@ -59,37 +30,116 @@ long getDistance(int trigPin, int echoPin) {
   return duration * 0.034 / 2;
 }
 
-void beepSlow() {
-  Serial.println("Beeping slowly - small object detected.");
-  digitalWrite(buzzer, HIGH); delay(200);
-  digitalWrite(buzzer, LOW); delay(800);
+void beepLeft() {
+  digitalWrite(buzzer, HIGH);
+  delay(300);
+  digitalWrite(buzzer, LOW);
+  delay(700);
 }
 
-void beepFast() {
-  Serial.println("Beeping fast - large object detected.");
-  digitalWrite(buzzer, HIGH); delay(100);
-  digitalWrite(buzzer, LOW); delay(100);
+void beepRight() {
+  digitalWrite(buzzer, HIGH);
+  delay(200);
+  digitalWrite(buzzer, LOW);
+  delay(300);
 }
 
-void uploadToThingSpeak(long dA, long dB, bool sosTriggered) {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    String url = String(thingspeakServer) + "?api_key=" + thingspeakApiKey +
-                 "&field1=" + String(dA) +
-                 "&field2=" + String(dB) +
-                 "&field3=" + String(sosTriggered ? 1 : 0);
+void beepBoth() {
+  digitalWrite(buzzer, HIGH);
+  delay(100);
+  digitalWrite(buzzer, LOW);
+  delay(100);
+}
 
-    Serial.print("📡 Uploading to: ");
-    Serial.println(url);
+void setupA() {
+  Serial.begin(115200);
+  pinMode(trigA, OUTPUT); pinMode(echoA, INPUT);
+  pinMode(trigB, OUTPUT); pinMode(echoB, INPUT);
+  pinMode(buzzer, OUTPUT);
+}
 
-    http.begin(url);
-    int httpCode = http.GET();
+void loopA() {
+  long dA = getDistance(trigA, echoA);
+  long dB = getDistance(trigB, echoB);
 
-    Serial.print("📤 ThingSpeak response: ");
-    Serial.println(httpCode);
-    http.end();
+  bool leftDetected = dA < detectionThreshold;
+  bool rightDetected = dB < detectionThreshold;
+  bool bothSimilar = abs(dA - dB) < similarityThreshold;
+
+  if (leftDetected && rightDetected && bothSimilar) {
+    beepBoth();
+  } else if (leftDetected) {
+    beepLeft();
+  } else if (rightDetected) {
+    beepRight();
   } else {
-    Serial.println("❌ Not connected to WiFi - upload failed");
+    digitalWrite(buzzer, LOW);
+    delay(200);
+  }
+
+  if (millis() - lastTSUpdate > 15000) {
+    lastTSUpdate = millis();
+    sendToThingSpeak(dA, dB, false);
+  }
+}
+
+// GPS and SOS block
+HardwareSerial gpsSerial(2);
+TinyGPSPlus gps;
+
+const char* ssid = "Niviboo";
+const char* password = "Niviboo123";
+
+const char* account_sid = "AC37ccc22d18b13400390fb2b009ebf1a4";
+const char* auth_token  = "15fce4be715b5c005c900470bda7d1c5";
+const char* from_number = "+17439626646";
+const char* to_number   = "+917204430421";
+
+const char* pb_token = "o.C2At451NNFQ35D5ES39FiKu9r9m8JM70";
+const char* twiml_url = "https://handler.twilio.com/twiml/EH24ec49f5f6949ece3ae9423619572268";
+
+const int buttonPin = 16;
+const int ledPin = 18;
+
+bool buttonPressed = false;
+
+void setupB() {
+  pinMode(buttonPin, INPUT_PULLUP);
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
+
+  gpsSerial.begin(9600, SERIAL_8N1, 4, 17);
+  connectToWiFi();
+  ThingSpeak.begin(client);
+}
+
+void loopB() {
+  static unsigned long lastPressTime = 0;
+  const unsigned long debounceDelay = 50;
+
+  int reading = digitalRead(buttonPin);
+
+  if (reading == LOW && !buttonPressed && millis() - lastPressTime > debounceDelay) {
+    lastPressTime = millis();
+    buttonPressed = true;
+    digitalWrite(ledPin, HIGH);
+
+    makeCall();
+    sendPushbullet();
+
+    delay(500);
+    digitalWrite(ledPin, LOW);
+  }
+
+  if (reading == HIGH && buttonPressed) {
+    buttonPressed = false;
+  }
+}
+
+void connectToWiFi() {
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
   }
 }
 
@@ -104,92 +154,58 @@ void makeCall() {
     http.addHeader("Content-Type", "application/x-www-form-urlencoded");
 
     String postData = "To=" + String(to_number) + "&From=" + String(from_number) + "&Url=" + String(twiml_url);
-    int httpCode = http.POST(postData);
-
-    Serial.print("📞 Twilio call response: ");
-    Serial.println(httpCode);
+    http.POST(postData);
     http.end();
-  } else {
-    Serial.println("❌ Not connected to WiFi (Twilio)");
   }
+}
+
+String getGPSLocation() {
+  unsigned long start = millis();
+  while (millis() - start < 3000) {
+    while (gpsSerial.available()) {
+      gps.encode(gpsSerial.read());
+    }
+    if (gps.location.isUpdated()) {
+      String lat = String(gps.location.lat(), 6);
+      String lng = String(gps.location.lng(), 6);
+      String link = "https://www.google.com/maps?q=" + lat + "," + lng;
+      return "Location: " + link;
+    }
+  }
+  return "GPS location not available.";
 }
 
 void sendPushbullet() {
   if (WiFi.status() == WL_CONNECTED) {
+    String gpsMessage = getGPSLocation();
+
     HTTPClient http;
     http.begin("https://api.pushbullet.com/v2/pushes");
     http.addHeader("Access-Token", pb_token);
     http.addHeader("Content-Type", "application/json");
 
-    String postData = "{\"type\": \"note\", \"title\": \"🚨 SOS Alert!\", \"body\": \"The emergency button was pressed!\"}";
-    int httpCode = http.POST(postData);
-
-    Serial.print("📲 Pushbullet response: ");
-    Serial.println(httpCode);
+    String postData = "{\"type\": \"note\", \"title\": \"SOS Alert\", \"body\": \"The emergency button was pressed!\\n" + gpsMessage + "\"}";
+    http.POST(postData);
     http.end();
-  } else {
-    Serial.println("❌ Not connected to WiFi (Pushbullet)");
   }
+
+  sendToThingSpeak(0, 0, true);
 }
 
-// ------------------ MAIN SETUP & LOOP ------------------
+void sendToThingSpeak(long dA, long dB, bool sosPressed) {
+  ThingSpeak.setField(1, dA);
+  ThingSpeak.setField(2, dB);
+  ThingSpeak.setField(3, sosPressed ? 1 : 0);
+  ThingSpeak.writeFields(thingSpeakChannelNumber, thingSpeakAPIKey);
+}
 
+// Combined setup and loop
 void setup() {
-  Serial.begin(115200);  // Unified baud rate
-  pinMode(trigA, OUTPUT); pinMode(echoA, INPUT);
-  pinMode(trigB, OUTPUT); pinMode(echoB, INPUT);
-  pinMode(buzzer, OUTPUT);
-  pinMode(buttonPin, INPUT_PULLUP);
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
-  connectToWiFi();
+  setupA();
+  setupB();
 }
 
 void loop() {
-  // --- Obstacle Detection ---
-  long dA = getDistance(trigA, echoA);
-  long dB = getDistance(trigB, echoB);
-
-  Serial.print("Left: "); Serial.print(dA); Serial.print(" cm | ");
-  Serial.print("Right: "); Serial.print(dB); Serial.println(" cm");
-
-  bool leftDetected = dA < detectionThreshold;
-  bool rightDetected = dB < detectionThreshold;
-  bool bothSimilar = abs(dA - dB) < similarityThreshold;
-
-  if (leftDetected && rightDetected && bothSimilar) {
-    beepFast();
-  } else if (leftDetected || rightDetected) {
-    beepSlow();
-  } else {
-    digitalWrite(buzzer, LOW);
-    Serial.println("No object detected.");
-    delay(200);
-  }
-
-  // --- SOS Button Logic ---
-  static unsigned long lastPressTime = 0;
-  const unsigned long debounceDelay = 50;
-  int reading = digitalRead(buttonPin);
-
-  if (reading == LOW && !buttonPressed && millis() - lastPressTime > debounceDelay) {
-    lastPressTime = millis();
-    buttonPressed = true;
-    Serial.println("🔘 SOS Button Pressed!");
-    digitalWrite(ledPin, HIGH);
-    makeCall();
-    sendPushbullet();
-    delay(500);
-    digitalWrite(ledPin, LOW);
-  }
-
-  if (reading == HIGH && buttonPressed) {
-    buttonPressed = false;
-  }
-
-  // --- ThingSpeak Upload (Every 15 Seconds) ---
-  if (millis() - lastUploadTime >= uploadInterval) {
-    uploadToThingSpeak(dA, dB, buttonPressed);
-    lastUploadTime = millis();
-  }
+  loopA();
+  loopB();
 }
