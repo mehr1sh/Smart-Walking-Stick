@@ -1,0 +1,12 @@
+[Ultrasonic 1]         [Ultrasonic 2]
+   Trig  Echo             Trig  Echo
+    |     |                |     |
+   21    19               22    23
+     \   /                  \   /
+      \ /                    \ /
+      [ESP32 Dev Board]
+         |   |   |   |   |   |
+         2  16  18  4   17  3.3V/5V
+         |   |   |   |   |   |
+     [Buzzer][SOS][LED][GPS][GPS][GPS]
+             Btn     TX   RX   VCC
